@@ -1,0 +1,86 @@
+services:
+  # 1. PostgreSQL Database Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: attendance_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-attendance_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-attendance_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - attendance_network
+
+  # 2. Node.js Express Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: attendance_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      # Points to postgres container by default, or cloud DB if specified in env
+      DB_URL: ${DB_URL:-postgresql://postgres:postgres@postgres:5432/attendance_db}
+      JWT_SECRET: ${JWT_SECRET:-attendance_management_secret_key_2026}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-ds7w2aznz}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-112392219626266}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-5yGK6mHq_vAY0z4B7UhSk7FXIVs}
+      CLOUDINARY_NAME: ${CLOUDINARY_NAME:-ds7w2aznz}
+      CLOUDINARY_APIKEY: ${CLOUDINARY_APIKEY:-112392219626266}
+      CLOUDINARY_APISECRET: ${CLOUDINARY_APISECRET:-5yGK6mHq_vAY0z4B7UhSk7FXIVs}
+    ports:
+      - "5000:5000"
+    volumes:
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - attendance_network
+
+  # 3. React Vite Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: attendance_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - attendance_network
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_uploads:
+    driver: local
+
+networks:
+  attendance_network:
+    driver: bridge
+
